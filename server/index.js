@@ -90,7 +90,36 @@ app.post('/api/jobs/create', async (req, res) => {
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'Server running cleanly' });
 });
+/**
+ * STEP 3: The Job Status Polling Endpoint.
+ * The React frontend will call this repeatedly (e.g., every 3 seconds) 
+ * to update the user's progress bar and get the final video URL.
+ */
+app.get('/api/jobs/:id', async (req, res) => {
+    try {
+        // Fetch the specific job from the Redis queue using the ID
+        const job = await videoQueue.getJob(req.params.id);
+        
+        if (!job) {
+            return res.status(404).json({ error: 'Job not found in queue.' });
+        }
+        
+        // getState() returns 'waiting', 'active', 'completed', or 'failed'
+        const state = await job.getState(); 
+        
+        res.status(200).json({
+            id: job.id,
+            state: state,
+            progress: job.progress, // The 10, 35, 60, 100 we set in the worker
+            result: job.returnvalue || null, // Will contain the final video URL on success
+            failedReason: job.failedReason || null // Will contain error logs if it crashed
+        });
 
+    } catch (error) {
+        console.error('Status fetch error:', error);
+        res.status(500).json({ error: 'Failed to retrieve job status from queue.' });
+    }
+});
 app.listen(PORT, () => {
     console.log(`Production API Server listening on port ${PORT}`);
 });
