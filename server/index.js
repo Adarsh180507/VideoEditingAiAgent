@@ -2,10 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
 import { v2 as cloudinary } from 'cloudinary';
+import { videoQueue } from './queue.js'; 
 
 dotenv.config();
 
@@ -21,71 +19,71 @@ cloudinary.config({
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-
-// Ensure temporary local uploads directory exists
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
+app.use(express.json()); // Light payloads only
 
 // Database Connection
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('MongoDB connected successfully'))
     .catch(err => console.error('MongoDB connection error:', err));
 
-// Configure temporary local disk storage for Multer
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, UPLOAD_DIR);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, `${uniqueSuffix}-${file.originalname}`);
-    }
+/**
+ * STEP 1: Generate a secure signature for direct client-side upload.
+ * This keeps our backend totally free from handling heavy video bytes.
+ */
+app.get('/api/upload/signature', (req, res) => {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    
+    // Define parameters that the client MUST adhere to
+    const paramsToSign = {
+        timestamp: timestamp,
+        folder: 'ai_agent_videos',
+        resource_type: 'video'
+    };
+
+    // Generate cryptographic signature using API Secret
+    const signature = cloudinary.utils.api_sign_request(
+        paramsToSign, 
+        process.env.CLOUDINARY_API_SECRET
+    );
+
+    res.status(200).json({
+        signature,
+        timestamp,
+        apiKey: process.env.CLOUDINARY_API_KEY,
+        cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+        folder: 'ai_agent_videos'
+    });
 });
 
-const upload = multer({ 
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 * 1024 } // 5 GB limit
-});
+/**
+ * STEP 2: Endpoint called by the client AFTER successful upload to Cloudinary.
+ * Receives the cloud asset metadata and drops it cleanly into the queue.
+ */
+app.post('/api/jobs/create', async (req, res) => {
+    const { videoUrl, publicId, originalName, prompt } = req.body;
 
-// Routes
-app.post('/api/upload', upload.single('video'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No video file provided' });
+    if (!videoUrl || !publicId) {
+        return res.status(400).json({ error: 'Missing required Cloudinary asset metadata.' });
     }
 
     try {
-        const localFilePath = req.file.path;
-
-        // Upload large video file to Cloudinary using chunked stream upload
-        // resource_type: 'video' is required for any media files that aren't raw images
-        const cloudinaryResult = await cloudinary.uploader.upload_large(localFilePath, {
-            resource_type: 'video',
-            folder: 'ai_agent_videos',
-            chunk_size: 6000000 // 6MB chunks
+        // Enqueue the job for the background worker
+        const job = await videoQueue.add('extract-highlights', {
+            videoUrl,
+            publicId,
+            originalName: originalName || 'untitled_video.mp4',
+            prompt: prompt || "Find the best highlights"
         });
 
-        // After successful cloud upload, remove the local file to free up server disk space
-        fs.unlinkSync(localFilePath);
-
-        // Next step: push cloudinaryResult.secure_url and public_id to the Redis queue
         res.status(202).json({
-            message: 'Video uploaded to Cloudinary successfully. Processing started.',
-            videoUrl: cloudinaryResult.secure_url,
-            publicId: cloudinaryResult.public_id
+            message: 'Video processing job successfully initialized and queued.',
+            jobId: job.id,
+            videoUrl
         });
 
     } catch (error) {
-        console.error('Cloudinary upload error:', error);
-        
-        // Cleanup local file if Cloudinary upload fails
-        if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-        }
-        
-        res.status(500).json({ error: 'Failed to upload video to cloud storage' });
+        console.error('Queue error:', error);
+        res.status(500).json({ error: 'Failed to delegate processing job to queue manager.' });
     }
 });
 
@@ -94,5 +92,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server listening intently on port ${PORT}`);
+    console.log(`Production API Server listening on port ${PORT}`);
 });
