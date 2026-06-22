@@ -3,7 +3,13 @@ import cors from "cors";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import { v2 as cloudinary } from "cloudinary";
+import jwt from "jsonwebtoken";
 import { videoQueue } from "./queue.js";
+import { User } from "./models/User.js";
+
+// Import your Auth routes and Middleware
+import authRoutes from "./routes/authRoutes.js";
+import { protectAndCheckCredits } from "./middleware/authMiddleware.js";
 
 dotenv.config();
 
@@ -27,19 +33,81 @@ mongoose
   .then(() => console.log("MongoDB connected successfully"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
+// ==========================================
+// PUBLIC ROUTES
+// ==========================================
+
+// Mount the Auth Routes (Register / Login)
+app.use("/api/auth", authRoutes);
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "Server running cleanly" });
+});
+
+// ==========================================
+// USER DASHBOARD (NO CREDIT CHECK REQUIRED)
+// ==========================================
+
+// Basic auth checker that allows users with 0 credits to view their history
+const requireAuth = async (req, res, next) => {
+  try {
+    if (
+      !req.headers.authorization ||
+      !req.headers.authorization.startsWith("Bearer")
+    ) {
+      return res.status(401).json({ message: "Not authorized, no token" });
+    }
+    const token = req.headers.authorization.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.id).select("-password");
+    next();
+  } catch (error) {
+    res.status(401).json({ message: "Not authorized" });
+  }
+};
+
+// GET: Fetch the user's video history
+app.get("/api/user/history", requireAuth, async (req, res) => {
+  try {
+    // Return history sorted by newest first
+    const history = req.user.videoHistory.sort(
+      (a, b) => b.createdAt - a.createdAt,
+    );
+    res.json(history);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch history" });
+  }
+});
+
+// POST: Save a newly generated video to the user's database document
+app.post("/api/user/history", requireAuth, async (req, res) => {
+  try {
+    const { videoUrl, publicId, prompt } = req.body;
+    req.user.videoHistory.push({ videoUrl, publicId, prompt });
+    await req.user.save();
+    res.status(200).json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to save history" });
+  }
+});
+
+// ==========================================
+// PROTECTED SAAS ROUTES (CREDIT PAYWALL)
+// ==========================================
+
 /**
  * STEP 1: Generate a secure signature for direct client-side upload.
- * This keeps our backend totally free from handling heavy video bytes.
+ * PROTECTED: Prevents random unauthenticated bots from uploading to your Cloudinary.
  */
-app.get("/api/upload/signature", (req, res) => {
+app.get("/api/upload/signature", protectAndCheckCredits, (req, res) => {
   const timestamp = Math.round(new Date().getTime() / 1000);
 
-  // Define parameters that the client MUST adhere to
   // Define parameters that the client MUST adhere to
   const paramsToSign = {
     timestamp: timestamp,
     folder: "ai_agent_videos",
   };
+
   // Generate cryptographic signature using API Secret
   const signature = cloudinary.utils.api_sign_request(
     paramsToSign,
@@ -57,9 +125,9 @@ app.get("/api/upload/signature", (req, res) => {
 
 /**
  * STEP 2: Endpoint called by the client AFTER successful upload to Cloudinary.
- * Receives the cloud asset metadata and drops it cleanly into the queue.
+ * THE PAYWALL: Blocks users with 0 credits and deducts 1 credit upon success.
  */
-app.post("/api/jobs/create", async (req, res) => {
+app.post("/api/jobs/create", protectAndCheckCredits, async (req, res) => {
   const { videoUrl, publicId, originalName, prompt } = req.body;
 
   if (!videoUrl || !publicId) {
@@ -69,6 +137,10 @@ app.post("/api/jobs/create", async (req, res) => {
   }
 
   try {
+    console.log(
+      `[Paywall] User ${req.user.email} initiating job. Credits before: ${req.user.credits}`,
+    );
+
     // Enqueue the job for the background worker
     const job = await videoQueue.add("extract-highlights", {
       videoUrl,
@@ -77,10 +149,19 @@ app.post("/api/jobs/create", async (req, res) => {
       prompt: prompt || "Find the best highlights",
     });
 
+    // DEDUCT THE CREDIT
+    req.user.credits -= 1;
+    await req.user.save();
+
+    console.log(
+      `[Paywall] Job ${job.id} queued. Credits remaining: ${req.user.credits}`,
+    );
+
     res.status(202).json({
       message: "Video processing job successfully initialized and queued.",
       jobId: job.id,
       videoUrl,
+      creditsRemaining: req.user.credits, // Send back the updated balance to React
     });
   } catch (error) {
     console.error("Queue error:", error);
@@ -90,13 +171,10 @@ app.post("/api/jobs/create", async (req, res) => {
   }
 });
 
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "Server running cleanly" });
-});
 /**
  * STEP 3: The Job Status Polling Endpoint.
- * The React frontend will call this repeatedly (e.g., every 3 seconds)
- * to update the user's progress bar and get the final video URL.
+ * (Left intentionally public. The specific Job ID acts as the secret, and we
+ * do not want to block polling if a user's credit balance just hit 0).
  */
 app.get("/api/jobs/:id", async (req, res) => {
   try {
@@ -124,6 +202,7 @@ app.get("/api/jobs/:id", async (req, res) => {
       .json({ error: "Failed to retrieve job status from queue." });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Production API Server listening on port ${PORT}`);
 });
