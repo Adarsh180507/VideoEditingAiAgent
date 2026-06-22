@@ -1,10 +1,12 @@
 import { Worker } from "bullmq";
 import { redisConnection } from "./config/redis.js";
 import { videoProcessor } from "./processors/videoProcessor.js";
-console.log("Initializing Deep Video Processing Worker...");
 import dotenv from "dotenv";
 
 dotenv.config();
+
+console.log("Initializing Deep Video Processing Worker...");
+
 // Instantiate the BullMQ Worker
 const worker = new Worker("videoProcessing", videoProcessor, {
   connection: redisConnection,
@@ -14,7 +16,9 @@ const worker = new Worker("videoProcessing", videoProcessor, {
 
 // Event Listeners for tracking state
 worker.on("active", (job) => {
-  console.log(`[Job ${job.id}] Started processing: ${job.data.originalName}`);
+  console.log(
+    `[Job ${job.id}] Started processing: ${job.data.originalName || "Video"}`,
+  );
 });
 
 worker.on("completed", (job, result) => {
