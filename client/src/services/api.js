@@ -1,23 +1,16 @@
 import axios from "axios";
 const API_BASE_URL = "http://localhost:5000/api";
 
-/**
- * 1. Uploads the video directly to Cloudinary using a secure signature from our backend.
- * NEW: Requires 'token' to pass the backend Auth Bouncer.
- */
 export const uploadDirectlyToCloudinary = async (file, onProgress, token) => {
   try {
-    // Step A: Ask our Express backend for a cryptographic signature (WITH TOKEN)
     const signatureRes = await axios.get(`${API_BASE_URL}/upload/signature`, {
       headers: {
-        Authorization: `Bearer ${token}`, // <-- The VIP Pass
+        Authorization: `Bearer ${token}`,
       },
     });
 
     const { signature, timestamp, apiKey, cloudName, folder } =
       signatureRes.data;
-
-    // Step B: Construct the payload for Cloudinary's direct REST API
     const formData = new FormData();
     formData.append("file", file);
     formData.append("api_key", apiKey);
@@ -48,10 +41,6 @@ export const uploadDirectlyToCloudinary = async (file, onProgress, token) => {
   }
 };
 
-/**
- * 2. Tells our Express backend to drop a processing job into the Redis queue.
- * NEW: Requires 'token' to deduct a credit successfully.
- */
 export const startVideoProcessingJob = async (
   videoUrl,
   publicId,
@@ -70,12 +59,10 @@ export const startVideoProcessingJob = async (
       },
       {
         headers: {
-          Authorization: `Bearer ${token}`, // <-- The VIP Pass
+          Authorization: `Bearer ${token}`,
         },
       },
     );
-
-    // Returning the entire data object so we get both jobId and creditsRemaining
     return response.data;
   } catch (error) {
     console.error("Job Creation Error:", error);
@@ -83,10 +70,6 @@ export const startVideoProcessingJob = async (
   }
 };
 
-/**
- * 3. Polls the Express backend to check the exact progress of the BullMQ job.
- * (Left public so users with 0 credits can still check their job status).
- */
 export const checkJobStatus = async (jobId) => {
   try {
     const response = await axios.get(`${API_BASE_URL}/jobs/${jobId}`);

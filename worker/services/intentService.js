@@ -26,7 +26,7 @@ export const intentService = {
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash", // We use Flash because it is incredibly fast for text
+        model: "gemini-2.5-flash",
         contents: instructions,
         config: {
           responseFormat: { type: "application/json" },
@@ -75,7 +75,6 @@ export const intentService = {
         "[Intent Router] Router failed, defaulting to semantic search:",
         error.message,
       );
-      // Failsafe: If the text router crashes, default to the heavy audio analysis just in case.
       return { intent: "semantic_search" };
     }
   },

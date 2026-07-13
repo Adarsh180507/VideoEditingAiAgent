@@ -42,26 +42,20 @@ export const videoProcessor = async (job) => {
   let finalInsights = "";
 
   try {
-    // Stage 0: The Fast-Lane Router
     await job.updateProgress(5);
     console.log(
       `[Job ${jobId}] Stage 0: Analyzing intent for fast-lane routing...`,
     );
     const routerDecision = await intentService.analyzeIntent(prompt);
-
-    // Stage 1: Download Source from Cloudinary (Always needed for rendering)
     await job.updateProgress(10);
     console.log(
       `[Job ${jobId}] Stage 1/4: Downloading video from cloud tier...`,
     );
     await downloadFile(videoUrl, localVideoPath);
-
-    // Branch the architecture based on Intent
     if (
       routerDecision.intent === "structural_edit" &&
       routerDecision.highlights?.length > 0
     ) {
-      // ⚡ FAST LANE ⚡
       console.log(
         `[Job ${jobId}] ⚡ FAST LANE ACTIVATED: Skipping audio extraction and deep analysis.`,
       );
@@ -71,29 +65,24 @@ export const videoProcessor = async (job) => {
         routerDecision.insights ||
         "I caught your exact timestamps. Fast-tracking your edit right to the rendering phase!";
 
-      await job.updateProgress(60); // Jump progress visually
+      await job.updateProgress(60);
     } else {
-      // 🧠 SEMANTIC SEARCH 🧠
       console.log(
         `[Job ${jobId}] 🧠 SEMANTIC SEARCH ACTIVATED: Booting up audio pipeline.`,
       );
 
-      // Stage 2: Extract Optimized Voice Audio
       await job.updateProgress(35);
       console.log(
         `[Job ${jobId}] Stage 2/4: Isolating audio tracks with FFmpeg...`,
       );
       await ffmpegService.extractAudio(localVideoPath, extAudioPath);
 
-      // Stage 3: Send Audio Track to Gemini
       await job.updateProgress(60);
       console.log(
         `[Job ${jobId}] Stage 3/4: Transmitting audio context to AI Agent...`,
       );
 
       const aiResult = await aiAnalysisService.analyze(extAudioPath, prompt);
-
-      // Handle the object structure returning from the upgraded aiAnalysisService
       finalHighlights = aiResult.highlights || [];
       finalInsights = aiResult.insights || "Analysis and rendering complete!";
     }
@@ -101,8 +90,6 @@ export const videoProcessor = async (job) => {
     console.log(
       `[Job ${jobId}] Ready to render with ${finalHighlights.length} highlights.`,
     );
-
-    // Stage 4: Render Spliced Edits & Upload Back to Cloud Storage
     await job.updateProgress(85);
     console.log(
       `[Job ${jobId}] Stage 4/4: Rendering highlight clips & syncing...`,
@@ -115,8 +102,6 @@ export const videoProcessor = async (job) => {
     );
 
     await job.updateProgress(100);
-
-    // Return the consolidated data to the Express API / React Frontend
     return {
       success: true,
       message: "Pipeline completed cleanly.",

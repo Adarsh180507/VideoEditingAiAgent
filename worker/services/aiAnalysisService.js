@@ -67,19 +67,15 @@ export const aiAnalysisService = {
           },
         },
       });
-
-      // 1. Strip markdown code blocks
       const rawText = response.text;
       const cleanedText = rawText
         .replace(/```json\n?/gi, "")
         .replace(/```\n?/g, "")
         .trim();
 
-      // 2. Parse the JSON
       const resultJson = JSON.parse(cleanedText);
       console.log("[Gemini API] Raw parsed object:", resultJson);
 
-      // 3. Handle structure (supports both object wrapper or raw array)
       const finalHighlights = Array.isArray(resultJson)
         ? resultJson
         : resultJson.highlights || [];

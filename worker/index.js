@@ -7,14 +7,12 @@ dotenv.config();
 
 console.log("Initializing Deep Video Processing Worker...");
 
-// Instantiate the BullMQ Worker
 const worker = new Worker("videoProcessing", videoProcessor, {
   connection: redisConnection,
-  concurrency: 1, // Start with 1 job at a time to prevent CPU resource thrashing
+  concurrency: 1,
   autorun: true,
 });
 
-// Event Listeners for tracking state
 worker.on("active", (job) => {
   console.log(
     `[Job ${job.id}] Started processing: ${job.data.originalName || "Video"}`,
@@ -28,8 +26,6 @@ worker.on("completed", (job, result) => {
 worker.on("failed", (job, err) => {
   console.error(`[Job ${job.id || "Unknown"}] CRITICAL FAILURE:`, err.message);
 });
-
-// Production Graceful Shutdown Management
 const shutdown = async (signal) => {
   console.log(
     `Received ${signal}. Gracefully shutting down video worker pipeline...`,
