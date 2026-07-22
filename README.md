@@ -82,9 +82,6 @@ Ensure you have the following installed on your local machine:
 
 4. **Start the Application:**
    ```bash
-   # Run Redis (if using Docker)
-   docker run -d -p 6379:6379 redis
-
    # Start backend server and background workers
    npm run dev
 
