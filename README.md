@@ -40,8 +40,8 @@ Ensure you have the following installed on your local machine:
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/yourusername/ai-video-saas.git](https://github.com/yourusername/ai-video-saas.git)
-   cd ai-video-saas
+   git clone https://github.com/Adarsh180507/VideoEditingAiAgent.git
+   cd VideoEditingAiAgent
    ```
 
 2. **Install dependencies:**
