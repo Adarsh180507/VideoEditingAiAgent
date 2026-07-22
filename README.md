@@ -89,11 +89,3 @@ Ensure you have the following installed on your local machine:
    cd client
    npm run start
    ```
-
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome! Feel free to check the issues page.
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
